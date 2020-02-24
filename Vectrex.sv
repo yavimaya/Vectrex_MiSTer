@@ -117,14 +117,23 @@ module emu
 	// 1 - D-/TX
 	// 2..6 - USR2..USR6
 	// Set USER_OUT to 1 to read from USER_IN.
-	input   [6:0] USER_IN,
-	output  [6:0] USER_OUT,
+	output	USER_OSD,
+output	USER_MODE,
+input	[7:0] USER_IN,
+output	[7:0] USER_OUT,
 
 	input         OSD_STATUS
 );
 
 assign ADC_BUS  = 'Z;
-assign USER_OUT = '1;
+
+wire   joy_split, joy_mdsel;
+wire   [5:0] joy_in = {USER_IN[6],USER_IN[3],USER_IN[5],USER_IN[7],USER_IN[1],USER_IN[2]};
+assign USER_OUT  = |status[31:30] ? {3'b111,joy_split,3'b111,joy_mdsel} : '1;
+assign USER_MODE = |status[31:30] ;
+assign USER_OSD  = joydb9md_1[7] & joydb9md_1[5];
+
+
 assign {UART_RTS, UART_TXD, UART_DTR} = 0;
 assign {SD_SCK, SD_MOSI, SD_CS} = 'Z;
 assign {SDRAM_DQ, SDRAM_A, SDRAM_BA, SDRAM_CLK, SDRAM_CKE, SDRAM_DQML, SDRAM_DQMH, SDRAM_nWE, SDRAM_nCAS, SDRAM_nRAS, SDRAM_nCS} = 'Z;
@@ -141,10 +150,12 @@ assign VIDEO_ARY = status[1] ? 8'd9  : 8'd1;
 `include "build_id.v" 
 localparam CONF_STR = {
 	"VECTREX;;",
-	"-;",
+"-;",
 	"F,VECBINROM;",
 	"OB,Skip logo,No,Yes;",
-	"-;",
+"-;",
+	"OUV,Serial SNAC DB9MD,Off,1 Player,2 Players;",
+"-;",
 	"O1,Aspect ratio,4:3,16:9;",
 	"O9,Frame,No,Yes;",
 	"O4,Resolution,High,Low;",
@@ -152,9 +163,9 @@ localparam CONF_STR = {
 	"O56,Pseudocolor,Off,1,2,3;",
 	"O8,Overburn,No,Yes;",
 	"OC,Port 2,Joystick,Speech;",
-	"-;",
+"-;",
 	"OA,CPU Model,1,2;",
-	"-;",
+"-;",
 	"R7,Reset;",
 	"J1,Button 1,Button 2,Button 3,Button 4;",
 	"V,v",`BUILD_DATE
@@ -176,7 +187,45 @@ pll pll
 wire [31:0] status;
 wire  [1:0] buttons;
 
-wire [15:0] joystick_0, joystick_1;
+wire [15:0] joystick_0_USB, joystick_1_USB;
+
+
+wire [15:0] joystick_0 = |status[31:30] ? {
+	joydb9md_1[9] | joydb9md_1[7],	// btn_fire4	-> 7 * X or Start
+	joydb9md_1[5],					// btn_fire3	-> 6 * C
+	joydb9md_1[4],					// btn_fire2	-> 5 * B
+	joydb9md_1[6],					// btn_fire1	-> 4 * A
+	joydb9md_1[3],					// btn_up		-> 3 * U
+	joydb9md_1[2],					// btn_down		-> 2 * D
+	joydb9md_1[1],					// btn_left		-> 1 * L
+	joydb9md_1[0],					// btn_right	-> 0 * R 
+	} 
+	: joystick_0_USB;
+
+wire [15:0] joystick_1 =  status[31]    ? {
+	joydb9md_2[9] | joydb9md_1[7],	// btn_fire4	-> 7 * X or Start
+	joydb9md_2[5],					// btn_fire3	-> 6 * C
+	joydb9md_2[4],					// btn_fire2	-> 5 * B
+	joydb9md_2[6],					// btn_fire1	-> 4 * A
+	joydb9md_2[3],					// btn_up		-> 3 * U
+	joydb9md_2[2],					// btn_down		-> 2 * D
+	joydb9md_2[1],					// btn_left		-> 1 * L
+	joydb9md_2[0],					// btn_right	-> 0 * R 
+	} 
+	: status[30] ? joystick_0_USB : joystick_1_USB;
+
+reg [15:0] joydb9md_1,joydb9md_2;
+joy_db9md joy_db9md
+(
+  .clk       ( clk_sys    ), //35-50MHz
+  .joy_split ( joy_split  ),
+  .joy_mdsel ( joy_mdsel  ),
+  .joy_in    ( joy_in     ),
+  .joystick1 ( joydb9md_1 ),
+  .joystick2 ( joydb9md_2 )	  
+);
+
+
 wire [15:0] joya_0, joya_1;
 wire        ioctl_download;
 wire        ioctl_wr;
@@ -201,8 +250,9 @@ hps_io #(.STRLEN($size(CONF_STR)>>3)) hps_io
 
 	.joystick_analog_0(joya_0),
 	.joystick_analog_1(joya_1),
-	.joystick_0(joystick_0),
-	.joystick_1(joystick_1)
+	.joystick_0(joystick_0_USB),
+	.joystick_1(joystick_1_USB),
+	.joy_raw({joydb9md_1[4],joydb9md_1[6],joydb9md_1[3:0]}),
 );
 
 wire [9:0] audio;
